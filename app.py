@@ -32,11 +32,13 @@ PALETTES = {
         "bg": "#0f1115", "panel": "#15181e", "panel2": "#191c23",
         "line": "#2a2f39", "text": "#ece7dd", "muted": "#8a909c",
         "gold": "#d9a441", "mint": "#6ee7c8",
+        "alert_bg": "#16202e", "alert_text": "#cfe3ff",
     },
     "light": {
         "bg": "#f4f1ea", "panel": "#ffffff", "panel2": "#faf8f3",
-        "line": "#e0dacd", "text": "#1f2933", "muted": "#6b7280",
+        "line": "#e0dacd", "text": "#1f2933", "muted": "#4b5563",
         "gold": "#b3821f", "mint": "#0f9d76",
+        "alert_bg": "#e8f0fe", "alert_text": "#1f2933",
     },
 }
 
@@ -58,6 +60,11 @@ def inject_style(theme: str) -> None:
     css = (ROOT / "assets" / "styles.css").read_text(encoding="utf-8")
     order = ["bg", "panel", "panel2", "line", "text", "muted", "gold", "mint"]
     vars_css = ":root{" + "".join(f"--lt-{k}: {palette[k]};" for k in order) + "}"
+    vars_css = vars_css[:-1] + (
+        f"--lt-alert-bg: {palette['alert_bg']};"
+        f"--lt-alert-text: {palette['alert_text']};"
+        "}"
+    )
     st.markdown(f"<style>{css}\n{vars_css}</style>", unsafe_allow_html=True)
 
 
