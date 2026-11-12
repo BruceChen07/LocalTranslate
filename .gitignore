@@ -1,0 +1,23 @@
+# 译心 · LocalTranslate —— 大文件与运行时产物不提交
+# 引擎与模型合计约 4.7 GB，请用 deploy.py 在本地/部署机下载
+
+llama/
+llama-cuda/
+downloads/
+models/*.gguf
+models/*.part
+logs/
+data/
+wheelhouse/
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 运行时临时文件
+*.part
+*.log
+.deploy.lock
+.engine.pid
+*.lnk
