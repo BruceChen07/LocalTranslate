@@ -1,0 +1,182 @@
+/* ============================================================
+   译心 · LocalTranslate 主题
+   说明：:root 变量由 app.py 在运行时按主题注入覆盖
+   ============================================================ */
+
+.stApp,
+[data-testid="stAppViewContainer"] {
+    background: var(--lt-bg);
+}
+
+[data-testid="stHeader"] {
+    background: transparent;
+}
+
+/* ---------- 侧边栏 ---------- */
+[data-testid="stSidebar"] {
+    background: var(--lt-panel);
+    border-right: 1px solid var(--lt-line);
+}
+[data-testid="stSidebar"] label {
+    color: var(--lt-muted) !important;
+    font-size: 12px !important;
+}
+
+/* ---------- 下拉框 ---------- */
+[data-baseweb="select"] > div {
+    background: var(--lt-panel2) !important;
+    border: 1px solid var(--lt-line) !important;
+    border-radius: 8px !important;
+    color: var(--lt-text) !important;
+}
+[data-baseweb="select"] * {
+    color: var(--lt-text) !important;
+}
+div[data-baseweb="popover"] li {
+    background: var(--lt-panel2);
+    color: var(--lt-text);
+}
+
+/* ---------- 输入框 ---------- */
+textarea {
+    background: var(--lt-panel) !important;
+    color: var(--lt-text) !important;
+    border: 1px solid var(--lt-line) !important;
+    border-radius: 12px !important;
+    font-size: 14px !important;
+    line-height: 1.7 !important;
+}
+textarea:focus {
+    border-color: var(--lt-gold) !important;
+    box-shadow: 0 0 0 2px rgba(217, 164, 65, 0.18) !important;
+}
+
+/* ---------- 按钮 ---------- */
+.stButton > button,
+.stDownloadButton > button {
+    background: var(--lt-panel2);
+    color: var(--lt-text);
+    border: 1px solid var(--lt-line);
+    border-radius: 8px;
+    font-size: 13px;
+    transition: all 0.15s ease;
+}
+.stButton > button:hover,
+.stDownloadButton > button:hover {
+    border-color: var(--lt-gold);
+    color: #ffffff;
+}
+.stButton > button[kind="primary"] {
+    background: linear-gradient(145deg, #e8c06a, #c9912f);
+    color: #1a1204;
+    border: 1px solid #c9912f;
+    font-weight: 700;
+}
+.stButton > button[kind="primary"]:hover {
+    filter: brightness(1.06);
+}
+
+/* ---------- 自定义组件 ---------- */
+.lt-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 2px 14px 2px;
+    border-bottom: 1px solid var(--lt-line);
+    margin-bottom: 16px;
+}
+.lt-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.lt-logo {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: linear-gradient(145deg, #e8c06a, #c9912f);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Noto Serif SC", Georgia, serif;
+    font-weight: 700;
+    font-size: 19px;
+    color: #1a1204;
+}
+.lt-name {
+    font-family: "Noto Serif SC", Georgia, serif;
+    font-size: 19px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+.lt-sub {
+    font-size: 10.5px;
+    color: var(--lt-muted);
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    margin-top: 1px;
+}
+.lt-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--lt-muted);
+}
+.lt-status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.lt-colhead {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    color: var(--lt-muted);
+    padding: 2px 2px 8px 2px;
+}
+.lt-output {
+    background: var(--lt-panel);
+    border: 1px solid var(--lt-line);
+    border-radius: 12px;
+    padding: 16px 18px;
+    min-height: 280px;
+    font-size: 14.5px;
+    line-height: 1.85;
+    color: var(--lt-text);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.lt-empty {
+    color: var(--lt-muted);
+}
+.lt-caret {
+    color: var(--lt-gold);
+    animation: lt-blink 1s steps(1) infinite;
+}
+@keyframes lt-blink {
+    50% { opacity: 0; }
+}
+.lt-foot {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    font-size: 11px;
+    color: var(--lt-muted);
+    border-top: 1px solid var(--lt-line);
+    padding-top: 12px;
+    margin-top: 14px;
+}
+.lt-ok { color: var(--lt-mint); }
+.lt-speed { color: var(--lt-gold); }
+.lt-muted { color: var(--lt-muted); }
+.lt-sidefoot {
+    margin-top: 22px;
+    padding-top: 12px;
+    border-top: 1px solid var(--lt-line);
+    font-size: 10px;
+    line-height: 1.7;
+    color: var(--lt-muted);
+}
