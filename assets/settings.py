@@ -1,4 +1,4 @@
-"""本地设置持久化（语言方向 / 语气 / 主题 / 空闲释放策略）。"""
+"""本地设置持久化（源/目标语言 / 语气 / 主题 / 空闲释放策略）。"""
 from __future__ import annotations
 
 import json
@@ -9,7 +9,8 @@ DATA_DIR = APP_DIR / "data"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 
 DEFAULTS = {
-    "direction": "中 → 英",
+    "src_lang": "中文",
+    "tgt_lang": "英文",
     "tone": "正式商务",
     "theme": "dark",
     "release": "30 秒",
@@ -26,6 +27,15 @@ def load() -> dict:
         for key in DEFAULTS:
             if key in data:
                 result[key] = data[key]
+        # 兼容旧版 direction 字段
+        if "src_lang" not in data and data.get("direction"):
+            direction = data["direction"]
+            if direction == "英 → 中":
+                result.update(src_lang="英文", tgt_lang="中文")
+            elif direction == "自动检测":
+                result.update(src_lang="自动检测", tgt_lang="英文")
+            else:
+                result.update(src_lang="中文", tgt_lang="英文")
     return result
 
 
