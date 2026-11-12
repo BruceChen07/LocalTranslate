@@ -1,8 +1,9 @@
-"""译心 · LocalTranslate — 本地中英翻译助手（Streamlit）。
+"""译心 · LocalTranslate — 本地多语言翻译助手（Streamlit）。
 
 架构：本界面通过 HTTP 调用本机的 llama.cpp `llama-server`，
 模型为 Hy-MT2-7B Q4_K_M。全部离线，数据不出机。
 
+支持中文与英/法/韩/日/西/葡双向互译。
 引擎按需启停：首次翻译时加载，翻译完成/空闲后自动关闭以释放 CPU 与内存。
 """
 from __future__ import annotations
@@ -24,7 +25,7 @@ if str(ROOT) not in sys.path:
 from assets import settings as user_settings
 from assets.engine import engine
 from assets.llm_client import LlamaServerClient
-from assets.translator import DIRECTIONS, TONES, build_messages
+from assets.translator import LANGUAGES, LANG_EN, SOURCE_OPTIONS, TONES, build_messages
 
 PALETTES = {
     "dark": {
@@ -64,7 +65,8 @@ def inject_style(theme: str) -> None:
 def persist_settings() -> None:
     user_settings.save(
         {
-            "direction": st.session_state.get("direction", DIRECTIONS[0]),
+            "src_lang": st.session_state.get("src_lang", "中文"),
+            "tgt_lang": st.session_state.get("tgt_lang", "英文"),
             "tone": st.session_state.get("tone", TONES[0]),
             "theme": st.session_state.get("theme", "dark"),
             "release": st.session_state.get("release", "30 秒"),
@@ -81,11 +83,13 @@ def init_state() -> None:
     if st.session_state.get("_lt_ready"):
         return
     saved = user_settings.load()
-    direction = saved["direction"] if saved["direction"] in DIRECTIONS else DIRECTIONS[0]
+    src_lang = saved["src_lang"] if saved.get("src_lang") in SOURCE_OPTIONS else "中文"
+    tgt_lang = saved["tgt_lang"] if saved.get("tgt_lang") in LANGUAGES else "英文"
     tone = saved["tone"] if saved["tone"] in TONES else TONES[0]
     theme = saved["theme"] if saved["theme"] in ("dark", "light") else "dark"
     release = saved["release"] if saved.get("release") in RELEASE_OPTIONS else "30 秒"
-    st.session_state["direction"] = direction
+    st.session_state["src_lang"] = src_lang
+    st.session_state["tgt_lang"] = tgt_lang
     st.session_state["tone"] = tone
     st.session_state["theme"] = theme
     st.session_state["release"] = release
@@ -101,10 +105,14 @@ def apply_pending_actions() -> None:
         old_src = st.session_state.get("src_text", "")
         st.session_state["src_text"] = st.session_state.get("result", "")
         st.session_state["result"] = old_src
-        if st.session_state.get("direction") == DIRECTIONS[0]:
-            st.session_state["direction"] = DIRECTIONS[1]
-        elif st.session_state.get("direction") == DIRECTIONS[1]:
-            st.session_state["direction"] = DIRECTIONS[0]
+        src = st.session_state.get("src_lang", "中文")
+        tgt = st.session_state.get("tgt_lang", "英文")
+        if src == "自动检测":
+            st.session_state["src_lang"] = tgt
+            st.session_state["tgt_lang"] = "中文"
+        else:
+            st.session_state["src_lang"] = tgt
+            st.session_state["tgt_lang"] = src
         persist_settings()
     if st.session_state.pop("_clear_pending", False):
         st.session_state["src_text"] = ""
@@ -129,7 +137,7 @@ def header_html(healthy: bool) -> str:
         <div class="lt-logo">译</div>
         <div>
           <div class="lt-name">译心</div>
-          <div class="lt-sub">LocalTranslate · 本地中英翻译</div>
+          <div class="lt-sub">LocalTranslate · 本地多语言翻译</div>
         </div>
       </div>
       <div class="lt-status">
@@ -205,7 +213,8 @@ with st.sidebar:
         '<div class="lt-sub" style="letter-spacing:1.5px;margin-bottom:16px;">翻译设置</div>',
         unsafe_allow_html=True,
     )
-    st.selectbox("语言方向", DIRECTIONS, key="direction", on_change=persist_settings)
+    st.selectbox("源语言", SOURCE_OPTIONS, key="src_lang", on_change=persist_settings)
+    st.selectbox("目标语言", LANGUAGES, key="tgt_lang", on_change=persist_settings)
     st.selectbox("语气", TONES, key="tone", on_change=persist_settings)
     st.selectbox(
         "翻译后释放引擎",
@@ -228,7 +237,7 @@ with st.sidebar:
         st.markdown(
             "本工具依赖本目录下的 `llama-server.exe` 与 "
             "`models/Hy-MT2-7B-Q4_K_M.gguf`。\n\n"
-            "引擎按需启动：首次翻译自动加载（约 6 秒），"
+            "支持中文与英/法/韩/日/西/葡互译。引擎按需启动：首次翻译自动加载（约 6 秒），"
             "之后按「翻译后释放引擎」设置自动关闭，释放内存。"
         )
 
@@ -250,7 +259,7 @@ with col_left:
         key="src_text",
         height=280,
         label_visibility="collapsed",
-        placeholder="在此粘贴中文或英文，点击「立即翻译」…",
+        placeholder="在此粘贴中文、英文或其他语言文本，点击「立即翻译」…",
     )
     left_head.markdown(
         f'<div class="lt-colhead"><span>原文</span><span>{len(src)} 字</span></div>',
@@ -258,8 +267,9 @@ with col_left:
     )
 
 with col_right:
+    tgt_display = LANG_EN.get(st.session_state.get("tgt_lang", "英文"), "English")
     st.markdown(
-        '<div class="lt-colhead"><span>译文</span><span>English</span></div>',
+        f'<div class="lt-colhead"><span>译文</span><span>{tgt_display}</span></div>',
         unsafe_allow_html=True,
     )
     out_ph = st.empty()
@@ -303,6 +313,11 @@ if do_translate:
     if not text:
         out_ph.markdown(render_output("请先输入要翻译的内容。"), unsafe_allow_html=True)
     else:
+        src_lang = st.session_state.get("src_lang", "中文")
+        tgt_lang = st.session_state.get("tgt_lang", "英文")
+        if src_lang != "自动检测" and src_lang == tgt_lang:
+            tgt_lang = "中文" if src_lang != "中文" else "英文"
+            st.session_state["tgt_lang"] = tgt_lang
         ok = False
         err_msg = ""
         with st.spinner("正在启动翻译引擎（首次约 6 秒）…"):
@@ -319,9 +334,7 @@ if do_translate:
             )
         else:
             messages = build_messages(
-                text,
-                st.session_state.get("direction", DIRECTIONS[0]),
-                st.session_state.get("tone", TONES[0]),
+                text, src_lang, tgt_lang, st.session_state.get("tone", TONES[0])
             )
             buf: list[str] = []
             first_at: float | None = None
@@ -353,7 +366,6 @@ if do_translate:
                 st.session_state["result"] = full
                 st.session_state["_last_rate"] = final_rate
                 out_ph.markdown(render_output(full), unsafe_allow_html=True)
-                # 翻译完成，刷新活动时间；「立即」模式直接关引擎释放内存
                 engine.touch()
                 if st.session_state.get("release") == "立即":
                     engine.stop()
