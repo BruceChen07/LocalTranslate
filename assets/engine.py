@@ -1,9 +1,12 @@
 """按需启停 llama-server：翻译时懒加载，空闲/完成后立即释放 CPU 与内存。
 
-- `ensure_running()`：首次翻译时启动引擎（约 6 秒加载模型）；
-  若发现端口上已有孤儿 llama-server，会接管它以便后续释放。
+后端自适应该：
+- 检测到 NVIDIA GPU 且已下载 CUDA 版时，使用 `llama-cuda/llama-server.exe` 并 `-ngl 99` 全量上显存；
+- 否则回退到 CPU 版 `llama/llama-server.exe`。
+
+- `ensure_running()`：首次翻译时启动引擎（约 6 秒加载模型）。
 - `touch()`：每次活动刷新“最后使用时间”。
-- 空闲超过 `idle_timeout` 秒后自动 `stop()`，释放约 5 GB 内存。
+- 空闲超过 `idle_timeout` 秒后自动 `stop()`，释放内存/显存。
 - 应用退出时（atexit）也会回收引擎进程。
 """
 from __future__ import annotations
@@ -15,17 +18,12 @@ import threading
 import time
 from pathlib import Path
 
+from .gpu import select_engine
+
 ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = ROOT / "logs"
 PID_FILE = ROOT / ".engine.pid"
 DEFAULT_URL = os.environ.get("LT_LLAMA_URL", "http://127.0.0.1:8080")
-
-
-def find_llama_server() -> Path | None:
-    for candidate in (ROOT / "llama-server.exe", ROOT / "llama" / "llama-server.exe"):
-        if candidate.exists():
-            return candidate
-    return None
 
 
 def _pid_alive(pid: int | None) -> bool:
@@ -75,6 +73,7 @@ def _find_pid_on_port(port: int) -> int | None:
 
 class EngineManager:
     def __init__(self) -> None:
+        self._exe, self.backend, self.gpu_name = select_engine()
         self.url = DEFAULT_URL.rstrip("/")
         self.port = int(os.environ.get("LT_PORT", "8080"))
         self.model = ROOT / "models" / os.environ.get("LT_MODEL", "Hy-MT2-7B-Q4_K_M.gguf")
@@ -89,6 +88,11 @@ class EngineManager:
         atexit.register(self.stop)
 
     # ------------------------------------------------------------------ 状态
+    def backend_label(self) -> str:
+        if self.backend == "cuda":
+            return f"GPU · {self.gpu_name}" if self.gpu_name else "GPU"
+        return "CPU"
+
     def is_alive(self) -> bool:
         if self._proc is not None and self._proc.poll() is None:
             return True
@@ -107,7 +111,6 @@ class EngineManager:
         if self.health():
             self._last = time.time()
             if not self.is_alive():
-                # 端口上已有孤儿 llama-server：接管它，稍后也能释放
                 pid = _find_pid_on_port(self.port)
                 if pid and _pid_is_llama(pid):
                     self._external_pid = pid
@@ -120,19 +123,20 @@ class EngineManager:
         return self._wait_health(wait)
 
     def _start(self) -> None:
-        exe = find_llama_server()
-        if exe is None or not self.model.exists():
+        if self._exe is None or not self.model.exists():
             raise RuntimeError("缺少 llama-server.exe 或模型文件")
         LOG_DIR.mkdir(exist_ok=True)
         self._log = open(LOG_DIR / "llama-server.log", "a", encoding="utf-8")
         flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        args = [
+            str(self._exe), "-m", str(self.model),
+            "--host", "127.0.0.1", "--port", str(self.port),
+            "-c", "8192", "-t", str(self.threads),
+        ]
+        if self.backend == "cuda":
+            args += ["-ngl", "99"]
         self._proc = subprocess.Popen(
-            [
-                str(exe), "-m", str(self.model),
-                "--host", "127.0.0.1", "--port", str(self.port),
-                "-c", "8192", "-t", str(self.threads),
-            ],
-            stdout=self._log, stderr=subprocess.STDOUT, creationflags=flags,
+            args, stdout=self._log, stderr=subprocess.STDOUT, creationflags=flags,
         )
         try:
             PID_FILE.write_text(str(self._proc.pid), encoding="utf-8")

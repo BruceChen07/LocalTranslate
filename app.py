@@ -134,7 +134,7 @@ def header_html(healthy: bool) -> str:
       </div>
       <div class="lt-status">
         <span class="lt-status-dot" style="background:{dot};box-shadow:0 0 8px {dot}"></span>
-        {state} · {MODEL_LABEL}
+        {state} · {MODEL_LABEL} · {engine.backend_label()}
       </div>
     </div>
     """
@@ -154,7 +154,7 @@ def footer_html(rate: float | None, healthy: bool) -> str:
     return (
         '<div class="lt-foot">'
         f"{engine_state}"
-        f"<span>{MODEL_LABEL}</span>{speed}"
+        f"<span>{MODEL_LABEL}</span><span>{engine.backend_label()}</span>{speed}"
         "<span>100% 本地 · 数据不出机</span>"
         "</div>"
     )

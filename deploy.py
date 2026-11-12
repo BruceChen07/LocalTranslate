@@ -2,17 +2,20 @@
 """译心 · LocalTranslate 部署脚本。
 
 自动下载：
-  1. llama.cpp Windows CPU 版（llama-server.exe + 依赖 DLL），解压到 ./llama/
-  2. Hy-MT2-7B-Q4_K_M.gguf（约 4.6 GB），放到 ./models/
-     默认从 ModelScope（魔搭，国内速度快）下载，可用 --source hf 切换 Hugging Face。
+  1. llama.cpp 引擎（Windows）：
+     - 有 NVIDIA GPU：下载 CUDA 版到 ./llama-cuda/（含 cudart 运行时）
+     - 无 GPU：下载 CPU 版到 ./llama/
+  2. Hy-MT2-7B-Q4_K_M.gguf（约 4.6 GB）到 ./models/
+     默认从 ModelScope（魔搭，国内速度快）下载。
 
-只依赖标准库，可在装依赖之前直接运行：
+只依赖标准库：
     py -3.12 deploy.py
 
 可选参数：
+    --backend {auto,cpu,cuda}  引擎后端（默认 auto：有 NVIDIA 用 CUDA，否则 CPU）
     --source {modelscope,hf,auto}  模型下载源（默认 modelscope）
     --force          已存在也重新下载
-    --insecure       跳过 TLS 校验（企业代理 MITM 时用）
+    --insecure       跳过 TLS 校验
     --llama-url URL  手动指定 llama.cpp zip 地址
     --model-url URL  手动指定 gguf 地址
     --skip-engine    跳过引擎下载
@@ -28,6 +31,7 @@ import os
 import re
 import shutil
 import ssl
+import subprocess
 import sys
 import time
 import urllib.error
@@ -37,13 +41,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 LLAMA_DIR = ROOT / "llama"
+LLAMA_CUDA_DIR = ROOT / "llama-cuda"
 MODEL_DIR = ROOT / "models"
 DOWNLOADS = ROOT / "downloads"
 MODEL_NAME = "Hy-MT2-7B-Q4_K_M.gguf"
 GH_API = "https://api.github.com/repos/ggml-org/llama.cpp"
 LOCK_FILE = ROOT / ".deploy.lock"
 
-# 模型仓库
 MODELSCOPE_REPO = "Tencent-Hunyuan/Hy-MT2-7B-GGUF"
 MODELSCOPE_REVISION = "master"
 HF_REPO = "tencent/Hy-MT2-7B-GGUF"
@@ -71,7 +75,6 @@ def human(num: int | None) -> str:
     return f"{value:.1f}TB"
 
 
-# --------------------------------------------------------------------------- 单实例锁
 def acquire_lock() -> None:
     if LOCK_FILE.exists():
         age = time.time() - LOCK_FILE.stat().st_mtime
@@ -91,7 +94,6 @@ def release_lock() -> None:
         pass
 
 
-# --------------------------------------------------------------------------- HTTP
 def ssl_context(insecure: bool) -> ssl.SSLContext:
     if insecure:
         ctx = ssl.create_default_context()
@@ -143,7 +145,6 @@ def download_file(
     if force and dest.exists():
         dest.unlink()
 
-    # 损坏的超大断点文件直接丢弃
     if part.exists() and expected_size and part.stat().st_size > expected_size:
         log("[警告] 断点文件大于预期大小，已删除并重新下载")
         part.unlink()
@@ -208,7 +209,6 @@ def download_file(
 
     size = part.stat().st_size
     if total is not None and size != total:
-        # 兜底：写入超量则截断
         if size > total:
             with open(part, "r+b") as fh:
                 fh.truncate(total)
@@ -221,7 +221,29 @@ def download_file(
     return dest
 
 
-# --------------------------------------------------------------------------- llama.cpp
+# --------------------------------------------------------------------------- 后端探测
+def detect_gpu() -> str | None:
+    exe = shutil.which("nvidia-smi")
+    if not exe:
+        for candidate in (
+            r"C:\Windows\System32\nvidia-smi.exe",
+            r"C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe",
+        ):
+            if Path(candidate).exists():
+                exe = candidate
+                break
+    if not exe:
+        return None
+    try:
+        out = subprocess.run(
+            [exe, "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=8,
+        ).stdout.strip()
+        return out.splitlines()[0].strip() if out else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _is_win_cpu_asset(name: str) -> bool:
     n = name.lower()
     if not n.endswith(".zip") or "bin-win" not in n:
@@ -241,14 +263,39 @@ def pick_win_cpu_asset(assets: list[dict]) -> dict | None:
     return None
 
 
-def resolve_llama_url(*, insecure: bool = False) -> tuple[str, str]:
+def pick_cuda_assets(assets: list[dict]) -> tuple[dict | None, dict | None]:
+    def is_win_cuda(name: str) -> bool:
+        n = name.lower()
+        return (
+            n.endswith(".zip")
+            and "bin-win-cuda" in n
+            and "x64" in n
+            and "arm64" not in n
+            and not n.startswith("cudart")
+        )
+
+    mains = [a for a in assets if is_win_cuda(a.get("name", ""))]
+    for pref in ("cuda-12.4-x64", "cuda-13.5-x64"):
+        main = next(
+            (a for a in mains if a["name"].lower().endswith(f"bin-win-{pref}.zip")), None
+        )
+        if main:
+            cudart_name = f"cudart-llama-bin-win-{pref}.zip"
+            cudart = next(
+                (a for a in assets if a.get("name", "").lower() == cudart_name), None
+            )
+            return main, cudart
+    return (mains[0] if mains else None), None
+
+
+def resolve_release(*, insecure: bool = False) -> tuple[str, list[dict]]:
     latest = api_json(f"{GH_API}/releases/latest", insecure=insecure)
-    asset = pick_win_cpu_asset(latest.get("assets", []))
-    if asset:
-        return asset["browser_download_url"], latest.get("tag_name", "latest")
+    assets = latest.get("assets", [])
+    if pick_win_cpu_asset(assets) or pick_cuda_assets(assets)[0]:
+        return latest.get("tag_name", "latest"), assets
 
     tag_asset = next(
-        (a for a in latest.get("assets", []) if a.get("name") == "nightly-tag.txt"), None
+        (a for a in assets if a.get("name") == "nightly-tag.txt"), None
     )
     if tag_asset:
         text = http_get_text(tag_asset["browser_download_url"], insecure=insecure)
@@ -256,11 +303,9 @@ def resolve_llama_url(*, insecure: bool = False) -> tuple[str, str]:
         if match:
             tag = match.group(0)
             release = api_json(f"{GH_API}/releases/tags/{tag}", insecure=insecure)
-            asset = pick_win_cpu_asset(release.get("assets", []))
-            if asset:
-                return asset["browser_download_url"], tag
+            return tag, release.get("assets", [])
 
-    raise RuntimeError("无法解析 Windows CPU 版本地址，请用 --llama-url 手动指定 zip 下载地址。")
+    raise RuntimeError("无法解析 llama.cpp 发布资源，请用 --llama-url 手动指定下载地址。")
 
 
 def find_server_exe(*dirs: Path) -> Path | None:
@@ -275,7 +320,7 @@ def find_server_exe(*dirs: Path) -> Path | None:
     return None
 
 
-def extract_zip(zip_path: Path, target: Path) -> Path:
+def extract_zip_files(zip_path: Path, target: Path) -> Path:
     target.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path) as archive:
         archive.extractall(target)
@@ -285,6 +330,11 @@ def extract_zip(zip_path: Path, target: Path) -> Path:
         for item in nested.iterdir():
             shutil.move(str(item), str(target / item.name))
         nested.rmdir()
+    return target
+
+
+def extract_zip(zip_path: Path, target: Path) -> Path:
+    extract_zip_files(zip_path, target)
     exe = find_server_exe(target)
     if not exe:
         raise RuntimeError(f"解压后未找到 llama-server.exe（{target}）")
@@ -326,8 +376,67 @@ def verify_sha256(path: Path, expected: str) -> None:
     log("[校验] SHA-256 一致")
 
 
+def download_engine(backend: str, args: argparse.Namespace) -> Path:
+    """下载并解压 llama.cpp 引擎，返回 llama-server.exe 路径。"""
+    if backend == "cuda":
+        existing = find_server_exe(LLAMA_CUDA_DIR)
+        if existing and not args.force:
+            log(f"[跳过] CUDA 引擎已存在：{existing}")
+            return existing
+        if args.llama_url:
+            url, cudart_asset = args.llama_url, None
+        else:
+            tag, assets = resolve_release(insecure=args.insecure)
+            main_asset, cudart_asset = pick_cuda_assets(assets)
+            if not main_asset:
+                raise RuntimeError("未找到 CUDA 版 Windows 包，请用 --llama-url 手动指定。")
+            url = main_asset["browser_download_url"]
+            log(f"[解析] llama.cpp {tag} · CUDA 版")
+        main_zip = DOWNLOADS / "llama-server-win-cuda.zip"
+        download_file(
+            url, main_zip, insecure=args.insecure, force=args.force,
+            label="llama.cpp CUDA 引擎包",
+        )
+        exe = extract_zip(main_zip, LLAMA_CUDA_DIR)
+        if cudart_asset:
+            cudart_zip = DOWNLOADS / "cudart-win-cuda.zip"
+            download_file(
+                cudart_asset["browser_download_url"], cudart_zip,
+                insecure=args.insecure, force=args.force, label="CUDA 运行时 DLL",
+            )
+            extract_zip_files(cudart_zip, LLAMA_CUDA_DIR)
+        log(f"[完成] CUDA 引擎：{exe}（启动时自动 -ngl 99）")
+        return exe
+
+    existing = find_server_exe(LLAMA_DIR, ROOT)
+    if existing and not args.force:
+        log(f"[跳过] CPU 引擎已存在：{existing}")
+        return existing
+    if args.llama_url:
+        url = args.llama_url
+    else:
+        tag, assets = resolve_release(insecure=args.insecure)
+        asset = pick_win_cpu_asset(assets)
+        if not asset:
+            raise RuntimeError("未找到 Windows CPU 包，请用 --llama-url 手动指定。")
+        url = asset["browser_download_url"]
+        log(f"[解析] llama.cpp {tag} · Windows CPU 版")
+    zip_path = DOWNLOADS / "llama-server-win-cpu.zip"
+    download_file(
+        url, zip_path, insecure=args.insecure, force=args.force,
+        label="llama.cpp 引擎包",
+    )
+    exe = extract_zip(zip_path, LLAMA_DIR)
+    log(f"[完成] CPU 引擎：{exe}")
+    return exe
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="下载 llama-server 与 Hy-MT2-7B 模型")
+    parser.add_argument(
+        "--backend", choices=["auto", "cpu", "cuda"], default="auto",
+        help="引擎后端（默认 auto：有 NVIDIA 用 CUDA，否则 CPU）",
+    )
     parser.add_argument(
         "--source", choices=["modelscope", "hf", "auto"], default="modelscope",
         help="模型下载源（默认 modelscope；auto 先 ModelScope 再 HF）",
@@ -348,22 +457,15 @@ def main(argv: list[str] | None = None) -> int:
     exit_code = 0
     try:
         if not args.skip_engine:
-            existing = find_server_exe(LLAMA_DIR, ROOT)
-            if existing and not args.force:
-                log(f"[跳过] 引擎已存在：{existing}")
-            else:
-                if args.llama_url:
-                    url, tag = args.llama_url, "自定义地址"
-                else:
-                    url, tag = resolve_llama_url(insecure=args.insecure)
-                    log(f"[解析] llama.cpp {tag} · Windows CPU 版")
-                zip_path = DOWNLOADS / "llama-server-win-cpu.zip"
-                download_file(
-                    url, zip_path, insecure=args.insecure, force=args.force,
-                    label="llama.cpp 引擎包",
-                )
-                exe = extract_zip(zip_path, LLAMA_DIR)
-                log(f"[完成] 引擎：{exe}")
+            gpu = detect_gpu()
+            backend = args.backend
+            if backend == "auto":
+                backend = "cuda" if gpu else "cpu"
+            if backend == "cuda" and not gpu:
+                log("[提示] 未检测到 NVIDIA GPU，自动改用 CPU 版。")
+                backend = "cpu"
+            log(f"[后端] {backend.upper()}" + (f"（{gpu}）" if gpu else ""))
+            download_engine(backend, args)
 
         if not args.skip_model:
             dest = MODEL_DIR / MODEL_NAME

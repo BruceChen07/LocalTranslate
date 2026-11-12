@@ -2,6 +2,7 @@
 # 引擎与模型合计约 4.7 GB，请用 deploy.py 在本地/部署机下载
 
 llama/
+llama-cuda/
 downloads/
 models/*.gguf
 models/*.part
