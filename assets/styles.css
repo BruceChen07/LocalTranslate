@@ -6,10 +6,39 @@
 .stApp,
 [data-testid="stAppViewContainer"] {
     background: var(--lt-bg);
+    color: var(--lt-text);
 }
 
 [data-testid="stHeader"] {
     background: transparent;
+}
+
+/* ---------- 通用文本 / 标题 ---------- */
+[data-testid="stMarkdownContainer"] {
+    color: var(--lt-text);
+}
+[data-testid="stMarkdownContainer"] a {
+    color: var(--lt-gold);
+}
+[data-testid="stCaptionContainer"] {
+    color: var(--lt-muted) !important;
+}
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary * {
+    color: var(--lt-text) !important;
+}
+[data-testid="stExpander"] {
+    border-color: var(--lt-line) !important;
+}
+
+/* ---------- 提示条（st.info / warning 等） ---------- */
+[data-testid="stAlert"] {
+    background: var(--lt-alert-bg) !important;
+    border: 1px solid var(--lt-line) !important;
+    border-radius: 10px !important;
+}
+[data-testid="stAlert"] * {
+    color: var(--lt-alert-text) !important;
 }
 
 /* ---------- 侧边栏 ---------- */
@@ -37,7 +66,7 @@ div[data-baseweb="popover"] li {
     color: var(--lt-text);
 }
 
-/* ---------- 输入框 ---------- */
+/* ---------- 输入框（含禁用态，如「模型」显示） ---------- */
 textarea {
     background: var(--lt-panel) !important;
     color: var(--lt-text) !important;
@@ -49,6 +78,18 @@ textarea {
 textarea:focus {
     border-color: var(--lt-gold) !important;
     box-shadow: 0 0 0 2px rgba(217, 164, 65, 0.18) !important;
+}
+[data-testid="stTextInput"] input {
+    background: var(--lt-panel) !important;
+    color: var(--lt-text) !important;
+    border: 1px solid var(--lt-line) !important;
+    border-radius: 8px !important;
+}
+[data-testid="stTextInput"] input:disabled {
+    background: var(--lt-panel2) !important;
+    color: var(--lt-text) !important;
+    -webkit-text-fill-color: var(--lt-text) !important;
+    opacity: 1 !important;
 }
 
 /* ---------- 按钮 ---------- */
@@ -64,7 +105,7 @@ textarea:focus {
 .stButton > button:hover,
 .stDownloadButton > button:hover {
     border-color: var(--lt-gold);
-    color: #ffffff;
+    color: var(--lt-text);
 }
 .stButton > button[kind="primary"] {
     background: linear-gradient(145deg, #e8c06a, #c9912f);
@@ -108,6 +149,7 @@ textarea:focus {
     font-size: 19px;
     font-weight: 700;
     letter-spacing: 0.5px;
+    color: var(--lt-text);
 }
 .lt-sub {
     font-size: 10.5px;
